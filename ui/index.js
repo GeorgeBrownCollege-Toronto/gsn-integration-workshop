@@ -2,13 +2,17 @@ const ethers = require('ethers')
 const { RelayProvider } = require("@opengsn/gsn")
 const relayHubAddress = require('../build/gsn/RelayHub.json').address
 const stakeManagerAddress = require('../build/gsn/StakeManager.json').address
-const paymasterAddress = require('../build/gsn/Paymaster.json').address
 
-
+// In truffle console run:
+// const pm = await WhitelistPaymaster.deployed()
+// pm.addToWhitelist('0x90F8bf6A479f320ead074411a4B0e7944Ea8c9C1')
 
 const contractArtifact = require('../build/contracts/CaptureTheFlag.json')
 const contractAddress = contractArtifact.networks[window.ethereum.networkVersion].address
 const contractAbi = contractArtifact.abi
+
+const paymasterArtifact = require('../build/contracts/WhitelistPaymaster.json')
+const whitelistPaymasterAddress = paymasterArtifact.networks[window.ethereum.networkVersion].address
 
 let provider
 let network
@@ -18,7 +22,7 @@ async function identifyNetwork () {
   network = await tmpProvider.ready
   const gsnConfig = {
     relayHubAddress,
-    paymasterAddress,
+    paymasterAddress: whitelistPaymasterAddress,
     stakeManagerAddress,
     methodSuffix: '_v4',
     jsonStringifyRequest: true,
@@ -45,6 +49,7 @@ async function contractCall () {
 }
 
 let logview
+
 function log(message) {
     message = message.replace( /(0x\w\w\w\w)\w*(\w\w\w\w)\b/g, '<b>$1...$2</b>')
     if ( !logview) {
@@ -52,6 +57,7 @@ function log(message) {
     }
     logview.innerHTML = message+"<br>\n"+logview.innerHTML
 }
+
 async function listenToEvents () {
   const contract = new ethers.Contract(
     contractAddress, contractAbi, provider)
@@ -68,4 +74,3 @@ window.app = {
   log,
   identifyNetwork
 }
-
