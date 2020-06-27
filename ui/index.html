@@ -13,8 +13,20 @@
     <script>
       window.app.identifyNetwork().then(function (network) {
         console.log(`identified network: ${JSON.stringify(network)}`)
-        document.getElementById('capture_button').disabled = false
-        window.app.listenToEvents()
+        window.app.getAddresses().then(function ({ ownerAddress, proxyAddress }) {
+          console.log(`owner address ${ownerAddress} proxy address: ${proxyAddress}`)
+          document.getElementById('capture_button').disabled = false
+          window.app.getTokenBalance(ownerAddress).then(function (eoabalance) {
+            console.log(`eoa token balance: ${eoabalance}`)
+            window.app.getTokenBalance(proxyAddress).then(function (balance) {
+              console.log(`proxy token balance: ${balance}`)
+              window.app.getPaymasterBalance().then(function (pmbalance) {
+                console.log(`paymaster balance on hub: ${pmbalance}`)
+                window.app.listenToEvents()
+              })
+            })
+          })
+        })
       })
     </script>
 
@@ -22,7 +34,15 @@
         Capture the flag
     </button>
 
-<hr>
-<div id="logview"> </div>
+    <button id="transfer_tokens_button" onClick="window.app.transferTokensToProxy()">
+        Transfer tokens to proxy
+    </button>
+
+    <button id="deposit_for_paymaster" onClick="window.app.depositForPaymaster()">
+        Deposit for Paymaster
+    </button>
+
+    <hr>
+    <div id="logview"></div>
 </body>
 </html>

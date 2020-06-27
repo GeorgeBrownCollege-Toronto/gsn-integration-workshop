@@ -1,28 +1,39 @@
 const ethers = require('ethers')
-const { RelayProvider } = require("@opengsn/gsn")
+const ProxyRelayProvider = require('@opengsn/paymasters/dist/src/ProxyRelayProvider').default
 const relayHubAddress = require('../build/gsn/RelayHub.json').address
 const stakeManagerAddress = require('../build/gsn/StakeManager.json').address
+const forwarderAddress = require('../build/gsn/Forwarder.json').address
 
-// In truffle console run:
-// const pm = await WhitelistPaymaster.deployed()
-// pm.addToWhitelist('0x90F8bf6A479f320ead074411a4B0e7944Ea8c9C1')
+const proxyFactoryArtifact = require('../build/contracts/ProxyFactory.json')
+const proxyFactoryAddress = proxyFactoryArtifact.networks[window.ethereum.networkVersion].address
+
+const relayHubArtifact = require('../build/contracts/IRelayHub.json')
+
+const testUniswapArtifact = require('../build/contracts/TestUniswap.json')
+const testUniswapAddress = testUniswapArtifact.networks[window.ethereum.networkVersion].address
+
+const testTokenArtifact = require('../build/contracts/TestToken.json')
 
 const contractArtifact = require('../build/contracts/CaptureTheFlag.json')
 const contractAddress = contractArtifact.networks[window.ethereum.networkVersion].address
 const contractAbi = contractArtifact.abi
 
-const paymasterArtifact = require('../build/contracts/WhitelistPaymaster.json')
-const whitelistPaymasterAddress = paymasterArtifact.networks[window.ethereum.networkVersion].address
+const paymasterArtifact = require('../build/contracts/ProxyDeployingPaymaster.json')
+const proxyDeployingPaymasterAddress = paymasterArtifact.networks[window.ethereum.networkVersion].address
 
 let provider
+let underlyingProvider
+let gsnProvider
 let network
 
 async function identifyNetwork () {
-  const tmpProvider = new ethers.providers.Web3Provider(window.ethereum);
-  network = await tmpProvider.ready
+  underlyingProvider = new ethers.providers.Web3Provider(window.ethereum)
+  network = await underlyingProvider.ready
   const gsnConfig = {
+    verbose: true,
     relayHubAddress,
-    paymasterAddress: whitelistPaymasterAddress,
+    paymasterAddress: proxyDeployingPaymasterAddress,
+    forwarderAddress,
     stakeManagerAddress,
     methodSuffix: '_v4',
     jsonStringifyRequest: true,
@@ -31,7 +42,7 @@ async function identifyNetwork () {
     // but chainID == networkId on top ethereum networks. See https://chainid.network/
     chainId: window.ethereum.networkVersion
   }
-  const gsnProvider = new RelayProvider(window.ethereum, gsnConfig);
+  gsnProvider = new ProxyRelayProvider(proxyFactoryAddress, window.ethereum, gsnConfig)
   provider = new ethers.providers.Web3Provider(gsnProvider)
   return network
 }
@@ -50,12 +61,12 @@ async function contractCall () {
 
 let logview
 
-function log(message) {
-    message = message.replace( /(0x\w\w\w\w)\w*(\w\w\w\w)\b/g, '<b>$1...$2</b>')
-    if ( !logview) {
-        logview = document.getElementById('logview')
-    }
-    logview.innerHTML = message+"<br>\n"+logview.innerHTML
+function log (message) {
+  message = message.replace(/(0x\w\w\w\w)\w*(\w\w\w\w)\b/g, '<b>$1...$2</b>')
+  if (!logview) {
+    logview = document.getElementById('logview')
+  }
+  logview.innerHTML = message + '<br>\n' + logview.innerHTML
 }
 
 async function listenToEvents () {
@@ -68,9 +79,68 @@ async function listenToEvents () {
   })
 }
 
+async function getAddresses () {
+  const ownerAddress = await provider.getSigner().getAddress()
+  const proxyAddress = await getProxyAddressOnChain()
+  return {
+    ownerAddress,
+    proxyAddress
+  }
+}
+
+async function depositForPaymaster () {
+  const contract = new ethers.Contract(
+    relayHubAddress, relayHubArtifact.abi, underlyingProvider.getSigner())
+  return contract.depositFor(proxyDeployingPaymasterAddress, {
+    value: '0x' + 1e18.toString(16)
+  })
+}
+
+async function getPaymasterBalance () {
+  const contract = new ethers.Contract(
+    relayHubAddress, relayHubArtifact.abi, provider.getSigner())
+  return contract.balanceOf(proxyDeployingPaymasterAddress)
+}
+
+async function getTokenAddress () {
+  const uniswap = new ethers.Contract(
+    testUniswapAddress, testUniswapArtifact.abi, provider.getSigner())
+  return await uniswap.tokenAddress()
+}
+
+async function getTokenBalance (address) {
+  const testTokenAddress = await getTokenAddress()
+  const contract = new ethers.Contract(
+    testTokenAddress, testTokenArtifact.abi, provider.getSigner())
+  return contract.balanceOf(address)
+}
+
+async function transferTokensToProxy () {
+  const testTokenAddress = await getTokenAddress()
+  const contract = new ethers.Contract(
+    testTokenAddress, testTokenArtifact.abi, underlyingProvider.getSigner())
+  const { ownerAddress, proxyAddress } = await getAddresses()
+  const balance = await getTokenBalance(ownerAddress)
+  return contract.transfer(proxyAddress, balance)
+}
+
+async function getProxyAddressOnChain () {
+  let signer = underlyingProvider.getSigner()
+  const contract = new ethers.Contract(
+    proxyFactoryAddress, proxyFactoryArtifact.abi, signer)
+  const proxy = await contract.calculateAddress(signer.getAddress())
+  console.log(proxy)
+  return proxy
+}
+
 window.app = {
+  depositForPaymaster,
+  getPaymasterBalance,
+  getTokenBalance,
+  transferTokensToProxy,
+  getProxyAddressOnChain,
+  getAddresses,
   contractCall,
   listenToEvents,
-  log,
   identifyNetwork
 }
